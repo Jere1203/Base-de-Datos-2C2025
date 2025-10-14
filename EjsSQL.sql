@@ -349,11 +349,40 @@ order by count(distinct prod_codigo) DESC
 --  Codigo de la familia del producto
 --  Detalle de la familia actual del producto
 --  Codigo de la familia sugerido para el producto
---  Detalla de la familia sugerido para el producto
+--  Detalle de la familia sugerido para el producto
+
 -- La familia sugerida para un producto es la que poseen la mayoria de los productos cuyo
 -- detalle coinciden en los primeros 5 caracteres.
+
 -- En caso que 2 o mas familias pudieran ser sugeridas se debera seleccionar la de menor
 -- codigo. Solo se deben mostrar los productos para los cuales la familia actual sea
 -- diferente a la sugerida
--- Los resultados deben ser ordenados por detalle de producto de manera ascendente
+-- Los resultados deben ser ordenados pr detalle de producto de manera ascendente
 
+SELECT p1.prod_codigo, p1.prod_detalle, p1.prod_familia, fami_detalle,
+(
+    select top 1 p2.prod_familia
+    from Producto p2
+    where left(p2.prod_detalle, 5) = LEFT(p1.prod_detalle, 5)
+    group by p2.prod_familia
+    order by count(*) desc
+) 'Familia sugerida',
+(
+    select top 1 f2.fami_detalle
+    from Producto p2
+    join Familia f2 on f2.fami_id = p2.prod_familia
+    where left(p2.prod_detalle, 5) = LEFT(p1.prod_detalle, 5)
+    group by f2.fami_detalle
+    order by count(*) desc
+) 'Detalle Flia. sugerida'
+FROM Producto p1 JOIN Familia ON fami_id = prod_familia
+group by prod_codigo, prod_detalle, prod_familia, fami_detalle
+having p1.prod_familia <> 
+                        (    
+                            select top 1 p2.prod_familia
+                            from Producto p2
+                            where left(p2.prod_detalle, 5) = LEFT(p1.prod_detalle, 5)
+                            group by p2.prod_familia
+                            order by count(*) desc
+                        )
+order by p1.prod_detalle asc
