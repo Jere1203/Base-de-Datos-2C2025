@@ -329,3 +329,178 @@ BEGIN
   DEALLOCATE c1
   RETURN @suma
 END
+
+-- 15. Cree el/los objetos de base de datos necesarios para que el objeto principal
+-- reciba un producto como parametro y retorne el precio del mismo.
+-- Se debe prever que el precio de los productos compuestos sera la sumatoria de
+-- los componentes del mismo multiplicado por sus respectivas cantidades. No se
+-- conocen los nivles de anidamiento posibles de los productos. Se asegura que
+-- nunca un producto esta compuesto por si mismo a ningun nivel. El objeto
+-- principal debe poder ser utilizado como filtro en el where de una sentencia
+-- select.
+
+GO
+CREATE FUNCTION ej15(@producto char(8)) 
+RETURNS numeric(12,4)
+AS
+BEGIN
+    IF (SELECT COUNT(*) FROM Composicion WHERE comp_producto = @producto) > 0 
+    BEGIN 
+        declare @suma numeric(12,4)
+        declare @comp char(8)
+        DECLARE cursorComponentes CURSOR FOR SELECT comp_componente FROM Composicion WHERE comp_producto = @producto
+        OPEN cursorComponentes
+        FETCH cursorComponentes INTO @comp
+        SELECT @suma = (SELECT isnull(SUM(comp_cantidad * prod_precio),0) FROM Composicion JOIN Producto ON comp_componente = prod_codigo WHERE comp_producto = @producto)
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            SELECT @suma = @suma + dbo.ej15(@comp)
+            FETCH cursorComponentes INTO @comp
+        END
+        CLOSE cursorComponentes
+        DEALLOCATE cursorComponentes
+    END
+    ELSE
+        SELECT @suma = prod_precio FROM Producto WHERE prod_codigo = @producto
+    
+return @suma
+END
+
+GO
+select prod_codigo, prod_detalle, dbo.ej15(prod_codigo), prod_precio
+from Producto
+
+-- 16. Desarrolle el/los elementos de base de datos necesarios para que ante una venta
+-- automaticamante se descuenten del stock los articulos vendidos. Se descontaran
+-- del deposito que mas producto poseea y se supone que el stock se almacena
+-- tanto de productos simples como compuestos (si se acaba el stock de los
+-- compuestos no se arman combos)
+-- En caso que no alcance el stock de un deposito se descontara del siguiente y asi
+-- hasta agotar los depositos posibles. En ultima instancia se dejara stock negativo
+-- en el ultimo deposito que se desconto.
+
+GO
+CREATE OR ALTER TRIGGER venta_reduce_stock ON Item_Factura AFTER INSERT
+AS
+BEGIN
+	DECLARE 
+	@producto char(8),
+	@cantidad decimal(12,2);
+	DECLARE c_inserted CURSOR FOR
+	SELECT i.item_producto, i.item_cantidad
+	FROM Inserted i;
+	OPEN c_inserted;
+	FETCH NEXT FROM c_inserted INTO @producto, @cantidad;
+	WHILE @@FETCH_STATUS = 0
+	BEGIN
+		EXEC dbo.descontar_stock @producto, @cantidad;
+		FETCH NEXT FROM c_inserted INTO @producto, @cantidad;
+	END
+	CLOSE c_inserted;
+	DEALLOCATE c_inserted;
+END
+
+GO
+CREATE OR ALTER PROCEDURE descontar_stock(@producto char(8), @cantidad decimal(12,2)) 
+AS 
+BEGIN
+	DECLARE @depo char(2), 
+	@restante decimal(12,2) = @cantidad,
+	@deposito char(8),
+	@stock_actual decimal(12,2);
+	DECLARE c_depositos CURSOR FOR
+	SELECT stoc_deposito, stoc_cantidad
+	FROM STOCK
+	WHERE stoc_producto = @producto
+	ORDER BY stoc_cantidad DESC;
+	OPEN c_depositos;
+	FETCH NEXT FROM c_depositos INTO @deposito, @stock_actual;
+	WHILE @@FETCH_STATUS = 0 AND @restante > 0
+	BEGIN
+		DECLARE @descuento decimal(12,2) = 
+			CASE
+			WHEN @stock_actual >= @restante THEN @restante
+			ELSE @stock_actual
+		END;
+		UPDATE STOCK
+		SET stoc_cantidad = stoc_cantidad - @descuento
+		WHERE stoc_producto = @producto AND stoc_deposito = @deposito;
+		SET @restante -= @descuento;
+        select @depo = @deposito
+        FETCH NEXT FROM c_depositos INTO @deposito, @stock_actual;
+	END
+	CLOSE c_depositos;
+	DEALLOCATE c_depositos;
+	IF @restante > 0
+	BEGIN
+		UPDATE STOCK
+		SET stoc_cantidad = stoc_cantidad - @restante
+		WHERE stoc_producto = @producto
+		AND stoc_deposito = @depo
+	END
+END
+GO
+
+-- 17. Sabiendo que el punto de reposicion del stock es la menor cantidad de ese objeto
+-- que se debe almacenar en el deposito y que el stock maximo es la maxima
+-- cantidad de ese producto en ese deposito, cree el/los objetos de base de datos
+-- necesarios para que dicha regla de negocio se cumpla automaticamente. No se
+-- conoce la forma de acceso a los datos ni el procedimiento por el cual se
+-- incrementa o descuenta stock
+
+GO
+CREATE TRIGGER ej_t17 ON STOCK AFTER INSERT, UPDATE
+AS
+BEGIN
+  IF (select count(*) from inserted where stoc_cantidad < stoc_punto_reposicion or stoc_cantidad > stoc_stock_maximo) > 0
+  BEGIN
+    PRINT 'NO CUMPLE LA REGLA DE NEGOCIO'
+  END
+END
+
+-- 18. Sabiendo que el limite de credito de un cliente es el monto maximo que se le
+-- puede facturar mensualmente, cree el/los objetos de base de datos necesarios
+-- para que dicha regla de negocio se cumpla automaticamente. No se conoce la
+-- forma de acceso a los datos ni el procedimiento por el cual se emiten las facturas
+
+GO
+CREATE TRIGGER ej_t18 ON Factura AFTER INSERT
+AS
+BEGIN
+  IF exists (select fact_cliente from Cliente join inserted i on i.fact_cliente = clie_codigo
+              where clie_limite_credito < (
+                                            select sum(i.fact_total)+( 
+                                                                      select sum(fact_total) 
+                                                                      from Factura 
+                                                                      where clie_codigo = fact_cliente 
+                                                                      and year(fact_fecha) = year(i.fact_fecha) 
+                                                                      and month(fact_fecha) = MONTH(i.fact_fecha)
+                                                                    )
+                                            from inserted i where i.fact_cliente = clie_codigo
+                                            group by i.fact_fecha)
+              )
+  BEGIN
+    PRINT 'SUPERA EL LIMITE DE CREDITO'
+    ROLLBACK
+  END
+END
+
+-- 19. Cree el/los objetos de base de datos necesarios para que se cumpla la siguiente
+-- regla de negocio automáticamente “Ningún jefe puede tener menos de 5 años de
+-- antigüedad y tampoco puede tener más del 50% del personal a su cargo
+-- (contando directos e indirectos) a excepción del gerente general”. Se sabe que en
+-- la actualidad la regla se cumple y existe un único gerente general.
+GO
+CREATE TRIGGER ej_t19 ON Empleado FOR INSERT, UPDATE, DELETE
+AS
+BEGIN
+  IF EXISTS (SELECT 1 FROM Empleado WHERE empl_codigo IN (
+                                                            SELECT empl_jefe 
+                                                            FROM Empleado
+                                                          ) 
+    AND DATEDIFF(year, empl_ingreso, GETDATE()) > 5 
+    OR dbo.ej11(empl_codigo) > (SELECT count(*)/2 FROM Empleado))
+  BEGIN
+    PRINT 'NO CUMPLE LA REGLA'
+  END
+END
