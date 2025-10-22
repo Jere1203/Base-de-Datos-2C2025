@@ -417,3 +417,64 @@ select empl_codigo, empl_nombre, empl_apellido, year(empl_ingreso)'INGRESO',
     group by fact_vendedor
 )
 from Empleado
+
+-- 21. Escriba una consulta sql que retorne para todos los años, en los cuales se haya hecho al
+-- menos una factura, la cantidad de clientes a los que se les facturo de manera incorrecta
+-- al menos una factura y que cantidad de facturas se realizaron de manera incorrecta. Se
+-- considera que una factura es incorrecta cuando la diferencia entre el total de la factura
+-- menos el total de impuesto tiene una diferencia mayor a $ 1 respecto a la sumatoria de
+-- los costos de cada uno de los items de dicha factura. Las columnas que se deben mostrar
+-- son:
+--  Año
+--  Clientes a los que se les facturo mal en ese año
+--  Facturas mal realizadas en ese año
+
+select year(f1.fact_fecha), 
+(
+    select count(*)
+    from Factura f2
+    where year(f2.fact_fecha) = year(f1.fact_fecha)
+    and ((f2.fact_total - f2.fact_total_impuestos) - (
+                                                        select sum(item_cantidad * item_precio) 
+                                                        from Item_Factura 
+                                                        where item_tipo = f2.fact_tipo and item_numero = f2.fact_numero and item_sucursal = f2.fact_sucursal
+                                                    ) > 1)
+) 'Facturas mal realizadas',
+(
+    select count(distinct f2.fact_cliente)
+    from Factura f2
+    where year(f2.fact_fecha) = year(f1.fact_fecha)
+    and ((f2.fact_total - f2.fact_total_impuestos) - (
+                                                        select sum(item_cantidad * item_precio)
+                                                        from Item_Factura
+                                                        where item_tipo = f2.fact_tipo and item_numero = f2.fact_numero and item_sucursal = f2.fact_sucursal
+                                                    ) > 1)
+) 'Clientes mal facturados'
+from Factura f1
+group by year(f1.fact_fecha)
+
+-- 22. Escriba una consulta sql que retorne una estadistica de venta para todos los rubros por
+-- trimestre contabilizando todos los años. Se mostraran como maximo 4 filas por rubro (1
+-- por cada trimestre).
+-- Se deben mostrar 4 columnas:
+-- [X] Detalle del rubro
+-- [X] Numero de trimestre del año (1 a 4)
+-- [X] Cantidad de facturas emitidas en el trimestre en las que se haya vendido al
+-- menos un producto del rubro
+-- [X] Cantidad de productos diferentes del rubro vendidos en el trimestre
+-- 
+-- El resultado debe ser ordenado alfabeticamente por el detalle del rubro y dentro de cada
+-- rubro primero el trimestre en el que mas facturas se emitieron.
+-- No se deberan mostrar aquellos rubros y trimestres para los cuales las facturas emitiadas
+-- no superen las 100.
+-- En ningun momento se tendran en cuenta los productos compuestos para esta
+-- estadistica.
+
+SELECT rubr_detalle, DATEPART(quarter, fact_fecha)'TRIMESTRE', count(*)'CANT Facturas', count(distinct prod_codigo) 'CANT PRODUCTOS'
+FROM Rubro 
+join Producto on prod_rubro = rubr_id
+join Item_Factura on prod_codigo = item_producto
+join Factura on item_tipo+item_sucursal+item_numero = fact_tipo+fact_sucursal+fact_numero
+group by rubr_detalle, DATEPART(quarter, fact_fecha)
+having count(*) > 100
+order by rubr_detalle ASC
