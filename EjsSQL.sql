@@ -478,3 +478,65 @@ join Factura on item_tipo+item_sucursal+item_numero = fact_tipo+fact_sucursal+fa
 group by rubr_detalle, DATEPART(quarter, fact_fecha)
 having count(*) > 100
 order by rubr_detalle ASC
+
+-- 23. Realizar una consulta SQL que para cada año muestre :
+-- [X] Año
+-- [X] El producto con composición más vendido para ese año.
+-- [X] Cantidad de productos que componen directamente al producto más vendido
+-- [X] La cantidad de facturas en las cuales aparece ese producto.
+-- [X] El código de cliente que más compro ese producto.
+-- [X] El porcentaje que representa la venta de ese producto respecto al total de venta
+-- del año.
+-- El resultado deberá ser ordenado por el total vendido por año en forma descendente.
+
+select year(f1.fact_fecha), 
+i1.item_producto,
+count(distinct comp_producto),
+count(distinct fact_tipo+fact_sucursal+fact_numero),
+(
+    select top 1 fact_cliente
+    from Factura
+    join Item_Factura on item_tipo+item_numero+item_sucursal = fact_tipo+fact_numero+fact_sucursal
+    where i1.item_producto = item_producto and year(fact_fecha) = year(f1.fact_fecha)
+    group by fact_cliente
+    order by sum(item_cantidad)
+),
+AVG(item_cantidad*item_precio)
+from Factura f1
+join Item_Factura i1 on i1.item_numero+i1.item_sucursal+i1.item_tipo = f1.fact_numero+f1.fact_sucursal+f1.fact_tipo
+join Composicion on item_producto = comp_producto
+group by year(f1.fact_fecha), item_producto
+having item_producto in (
+                            select top 1 item_producto
+                            from Item_Factura 
+                            join Composicion on comp_producto = item_producto
+                            join Factura f2 on f2.fact_tipo+f2.fact_sucursal+f2.fact_numero = item_tipo+item_sucursal+item_numero
+                            where year(f2.fact_fecha) = year(f1.fact_fecha)
+                            group by item_producto
+                            order by sum(item_cantidad) desc
+                        )
+
+SELECT 
+	YEAR(f.fact_fecha),
+	i.item_producto, 
+	COUNT(DISTINCT comp_producto),
+	COUNT(DISTINCT fact_tipo+fact_sucursal+fact_numero),
+	(SELECT TOP 1 fact_cliente 
+	FROM Factura
+	JOIN Item_Factura ON item_tipo+item_sucursal+item_numero=fact_tipo+fact_sucursal+fact_numero
+	WHERE item_producto = i.item_producto AND YEAR(f.fact_fecha) = YEAR(fact_fecha)
+	GROUP BY fact_cliente
+	ORDER BY SUM(item_cantidad)),
+	AVG(item_cantidad * item_precio)
+FROM Factura f
+JOIN Item_Factura i ON item_tipo+item_sucursal+item_numero=fact_tipo+fact_sucursal+fact_numero
+JOIN Producto ON item_producto = prod_codigo 
+JOIN Composicion ON comp_producto = prod_codigo
+GROUP BY YEAR(f.fact_fecha), item_producto
+HAVING item_producto IN (SELECT TOP 1 item_producto 
+							FROM Item_Factura
+							JOIN Factura ON item_tipo+item_sucursal+item_numero=fact_tipo+fact_sucursal+fact_numero
+							JOIN Composicion ON item_producto = comp_producto
+							WHERE YEAR(fact_fecha) = YEAR(f.fact_fecha)
+							GROUP BY item_producto 
+							ORDER BY SUM(item_cantidad) DESC)
