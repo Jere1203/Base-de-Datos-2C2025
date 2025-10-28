@@ -516,27 +516,24 @@ having item_producto in (
                             order by sum(item_cantidad) desc
                         )
 
-SELECT 
-	YEAR(f.fact_fecha),
-	i.item_producto, 
-	COUNT(DISTINCT comp_producto),
-	COUNT(DISTINCT fact_tipo+fact_sucursal+fact_numero),
-	(SELECT TOP 1 fact_cliente 
-	FROM Factura
-	JOIN Item_Factura ON item_tipo+item_sucursal+item_numero=fact_tipo+fact_sucursal+fact_numero
-	WHERE item_producto = i.item_producto AND YEAR(f.fact_fecha) = YEAR(fact_fecha)
-	GROUP BY fact_cliente
-	ORDER BY SUM(item_cantidad)),
-	AVG(item_cantidad * item_precio)
-FROM Factura f
-JOIN Item_Factura i ON item_tipo+item_sucursal+item_numero=fact_tipo+fact_sucursal+fact_numero
-JOIN Producto ON item_producto = prod_codigo 
-JOIN Composicion ON comp_producto = prod_codigo
-GROUP BY YEAR(f.fact_fecha), item_producto
-HAVING item_producto IN (SELECT TOP 1 item_producto 
-							FROM Item_Factura
-							JOIN Factura ON item_tipo+item_sucursal+item_numero=fact_tipo+fact_sucursal+fact_numero
-							JOIN Composicion ON item_producto = comp_producto
-							WHERE YEAR(fact_fecha) = YEAR(f.fact_fecha)
-							GROUP BY item_producto 
-							ORDER BY SUM(item_cantidad) DESC)
+-- 24. Escriba una consulta que considerando solamente las facturas correspondientes a los
+-- dos vendedores con mayores comisiones, retorne los productos con composición
+-- facturados al menos en cinco facturas,
+-- La consulta debe retornar las siguientes columnas:
+--  Código de Producto
+--  Nombre del Producto
+--  Unidades facturadas
+-- El resultado deberá ser ordenado por las unidades facturadas descendente.
+
+SELECT prod_codigo, prod_detalle, count(item_cantidad)
+FROM Factura
+JOIN Item_Factura on item_tipo+item_numero+item_sucursal = fact_tipo+fact_numero+fact_sucursal
+AND fact_vendedor IN (
+                        select top 2 empl_codigo
+                        from Empleado
+                        order by empl_comision desc
+                     )
+JOIN Producto on item_producto = prod_codigo
+JOIN Composicion on comp_producto = prod_codigo
+group by prod_codigo, prod_detalle
+having count(fact_numero) > 5
