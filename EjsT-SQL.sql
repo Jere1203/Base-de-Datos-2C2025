@@ -504,3 +504,70 @@ BEGIN
     PRINT 'NO CUMPLE LA REGLA'
   END
 END
+
+-- 20. Crear el/los objeto/s necesarios para mantener actualizadas las comisiones del
+-- vendedor.
+-- El cálculo de la comisión está dado por el 5% de la venta total efectuada por ese
+-- vendedor en ese mes, más un 3% adicional en caso de que ese vendedor haya
+-- vendido por lo menos 50 productos distintos en el mes.
+GO
+CREATE PROCEDURE ej_t20
+AS
+BEGIN
+  UPDATE Empleado
+  set empl_comision = 
+  CASE
+    WHEN (select count(distinct item_cantidad) from Item_Factura) >= 50 THEN (select sum(fact_total) from Empleado join Factura on empl_codigo = fact_vendedor where month(fact_fecha) = month(fact_fecha) - 30) * 0.08
+    ELSE (select sum(fact_total) from Empleado join Factura on empl_codigo = fact_vendedor where month(fact_fecha) = month(fact_fecha) - 30) * 0.05
+  END
+END
+
+
+-- PRACTICA DE PARCIAL EN CLASE --
+
+/*
+  2. Realizar un stored procedure que calcule e informe la comisión de un vendedor para un determinado mes.
+Los parámetros de entrada es código de vendedor, mes y año.
+El criterio para calcular la comisión es: 5% del total vendido tomando como importe base el valor de la factura
+sin los impuestos del mes a comisionar, a esto se le debe sumar un plus de 3% más en el caso de que sea el vendedor
+que más vendió los productos nuevos en comparación al resto de los vendedores, es decir este plus se le aplica solo
+a un vendedor y en caso de igualdad se le otorga al que posea el código de vendedor más alto.
+
+Se considera que un producto es nuevo cuando su primera venta en la empresa se produjo durante el mes en curso
+o en alguno de los 4 meses anteriores. De no haber ventas de productos nuevos en ese periodo, ese plus nunca se aplica. */ 
+
+GO
+CREATE PROCEDURE calculo_comision @vendedor numeric(6), @mes smalldatetime, @anio smalldatetime, @comision numeric(12,2) OUTPUT
+AS
+BEGIN
+  IF @vendedor = 
+  (
+    select top 1 fact_vendedor
+    from Factura join Item_Factura on item_sucursal+item_tipo+item_numero=fact_sucursal+fact_tipo+fact_numero
+    where fact_fecha >= GETDATE()-120 and item_producto not in (
+      select distinct item_producto 
+      from Item_Factura 
+      join Factura on item_tipo+item_numero+item_sucursal=fact_tipo+fact_numero+fact_sucursal
+      where fact_fecha < GETDATE()-120
+    )
+    group by fact_vendedor
+    order by sum(item_cantidad*item_precio) desc, fact_vendedor desc --Creo que se podria solo ordenar por item_cantidad porque solo pide cantidad de ventas
+  )
+  select @comision = 
+                    (
+                      select sum(fact_total-fact_total_impuestos) 
+                      from Factura 
+                      where YEAR(fact_fecha) = @anio 
+                      and MONTH(fact_fecha) = @mes 
+                      and fact_vendedor = @vendedor
+                    )*0.8
+  ELSE
+  select @comision = 
+                    (
+                      select sum(fact_total-fact_total_impuestos) 
+                      from Factura 
+                      where YEAR(fact_fecha) = @anio 
+                      and MONTH(fact_fecha) = @mes 
+                      and fact_vendedor = @vendedor
+                    )*0.5 
+END
