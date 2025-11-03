@@ -537,3 +537,62 @@ JOIN Producto on item_producto = prod_codigo
 JOIN Composicion on comp_producto = prod_codigo
 group by prod_codigo, prod_detalle
 having count(fact_numero) > 5
+
+-- 25. Realizar una consulta SQL que para cada año y familia muestre :
+-- a. Año
+-- b. El código de la familia más vendida en ese año.
+-- c. Cantidad de Rubros que componen esa familia.
+-- d. Cantidad de productos que componen directamente al producto más vendido de
+-- esa familia.
+-- e. La cantidad de facturas en las cuales aparecen productos pertenecientes a esa
+-- familia.
+-- f. El código de cliente que más compro productos de esa familia.
+-- g. El porcentaje que representa la venta de esa familia respecto al total de venta
+-- del año.
+-- El resultado deberá ser ordenado por el total vendido por año y familia en forma
+-- descendente.
+SELECT year(f.fact_fecha),
+p.prod_familia,
+(
+    select count(distinct prod_rubro)
+    from Producto
+    where p.prod_familia = prod_familia
+)'Rubros de la familia',
+(
+    select count(*)
+    from Composicion
+    where comp_producto in 
+                            (
+                                select top 1 item_producto
+                                from Item_Factura
+                                join Producto on item_producto = prod_codigo
+                                where p.prod_familia = prod_familia and year(f.fact_fecha) = year(fact_fecha)
+                                group by item_producto
+                                order by sum(item_cantidad)
+                            )
+),
+count(distinct fact_numero),
+(
+    select top 1 fact_cliente
+    from Factura
+    join Item_Factura on fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
+    join Producto on prod_codigo = item_producto
+    where p.prod_familia = prod_familia and year(f.fact_fecha) = year(fact_fecha)
+    group by fact_cliente
+    order by sum(item_cantidad) desc
+)'Cliente que mas compro',
+(sum(item_precio*item_cantidad) / (select sum(fact_total) from Factura where year(fact_fecha) = year(f.fact_fecha)))*100 'Porcentaje de ventas de la familia'
+from Factura f
+join Item_Factura on f.fact_tipo+f.fact_sucursal+f.fact_numero=item_tipo+item_sucursal+item_numero
+join Producto p on item_producto = p.prod_codigo
+where p.prod_familia in 
+                    (
+                        select top 1 p.prod_familia
+                        from Producto p join Item_Factura i on p.prod_codigo=i.item_producto
+                        join Factura f on f.fact_tipo+f.fact_numero+f.fact_sucursal=i.item_tipo+i.item_numero+i.item_sucursal
+                        where year(f.fact_fecha) = year(fact_fecha)
+                        group by p.prod_familia
+                        order by count(f.fact_numero) desc
+                    )
+group by year(f.fact_fecha), p.prod_familia
+order by sum(f.fact_total), p.prod_familia
