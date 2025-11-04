@@ -596,3 +596,33 @@ where p.prod_familia in
                     )
 group by year(f.fact_fecha), p.prod_familia
 order by sum(f.fact_total), p.prod_familia
+
+-- 26. Escriba una consulta sql que retorne un ranking de empleados devolviendo las
+-- siguientes columnas:
+--  Empleado
+--  Depósitos que tiene a cargo
+--  Monto total facturado en el año corriente
+--  Codigo de Cliente al que mas le vendió
+--  Producto más vendido
+--  Porcentaje de la venta de ese empleado sobre el total vendido ese año.
+-- 
+-- Los datos deberan ser ordenados por venta del empleado de mayor a menor.
+
+SELECT empl_codigo, (select count(*) from DEPOSITO where depo_encargado = empl_codigo), sum(fact_total),
+(
+    select top 1 clie_codigo
+    from Cliente
+    where clie_vendedor = empl_codigo
+    order by count(fact_numero)
+),
+(
+    select top 1 item_producto
+    from Item_Factura
+    join Factura on item_tipo+item_numero+item_sucursal=fact_tipo+fact_numero+fact_sucursal and fact_vendedor = empl_codigo
+    group by item_producto
+    order by count(item_cantidad)
+),
+(sum(fact_total)/(select sum(fact_total) from Factura where year(fact_fecha) = (select max(year(fact_fecha)) from Factura)))*100
+from Empleado
+join Factura on fact_vendedor=empl_codigo and year(fact_fecha) = (select max(year(fact_fecha)) from Factura)
+group by empl_codigo
