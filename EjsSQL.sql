@@ -626,3 +626,45 @@ SELECT empl_codigo, (select count(*) from DEPOSITO where depo_encargado = empl_c
 from Empleado
 join Factura on fact_vendedor=empl_codigo and year(fact_fecha) = (select max(year(fact_fecha)) from Factura)
 group by empl_codigo
+
+-- 27. Escriba una consulta sql que retorne una estadística basada en la facturacion por año y
+-- envase devolviendo las siguientes columnas:
+--  Año
+--  Codigo de envase
+--  Detalle del envase
+--  Cantidad de productos que tienen ese envase
+--  Cantidad de productos facturados de ese envase
+--  Producto mas vendido de ese envase
+--  Monto total de venta de ese envase en ese año
+--  Porcentaje de la venta de ese envase respecto al total vendido de ese año
+-- 
+-- Los datos deberan ser ordenados por año y dentro del año por el envase con más
+-- facturación de mayor a menor
+
+SELECT year(f.fact_fecha),
+enva_codigo,
+enva_detalle,
+(
+    select count(*)
+    from Producto
+    where prod_envase = enva_codigo
+)'Productos con envase',
+count(distinct prod_codigo) 'Productos facturados',
+(
+    select top 1 prod_codigo
+    from Producto
+    join Item_Factura on item_producto = prod_codigo
+    join Factura on fact_tipo+fact_numero+fact_sucursal=item_tipo+item_numero+item_sucursal
+    where prod_envase = enva_codigo 
+    and year(fact_fecha) = YEAR(f.fact_fecha)
+    group by prod_codigo
+    order by count(prod_codigo) desc
+)'Prod. mas vendido',
+sum(item_precio*item_cantidad)'Monto total',
+(sum(item_precio*item_cantidad) / (select sum(fact_total) from Factura where year(f.fact_fecha) = year(fact_fecha)))*100 '% Del año'
+from Factura f
+join Item_Factura on item_tipo+item_sucursal+item_numero=f.fact_tipo+f.fact_sucursal+f.fact_numero
+join Producto on prod_codigo = item_producto
+join Envases on enva_codigo = prod_envase
+group by year(fact_fecha), enva_detalle, enva_codigo
+order by year(fact_fecha), sum(item_precio*item_cantidad) DESC
