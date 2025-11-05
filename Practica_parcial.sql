@@ -28,6 +28,14 @@ order by count(fact_numero) desc
 select top 5 empl_nombre, empl_apellido, avg(fact_total), sum(item_cantidad*item_precio)
 from Empleado join Factura on fact_vendedor = empl_codigo and year(fact_fecha) = (select max(year(fact_fecha)) from Factura)
 join Item_Factura on fact_tipo+fact_numero+fact_sucursal=item_tipo+item_numero+item_sucursal
+where fact_numero in 
+(
+    select fact_numero
+    from Factura
+    join Item_Factura on item_tipo+item_numero+item_sucursal=fact_tipo+fact_numero+fact_sucursal
+    group by fact_numero
+    having count(*) > 2
+)
 group by empl_nombre, empl_apellido, empl_codigo
 order by (select count(*) from Cliente where clie_vendedor = empl_codigo) ASC, count(fact_numero) desc, empl_codigo
 
@@ -94,10 +102,83 @@ BEGIN
         IF (select count(*) from inserted i join Factura on i.item_tipo+i.item_numero+i.item_sucursal=fact_tipo+fact_numero+fact_sucursal
             where dbo.noSePuedeVender(i.item_precio, i.item_producto)=1) > 0
             BEGIN
-                PRINT 'No se cumple la regla'
-                ROLLBACK TRANSACTION
+                RAISERROR('No cumple la conidicion',1,1)
+                ROLLBACK
             END
     END
 END
 
+-- === Clase 4/11 ===
 
+/* 1.	Mostrar dos filas con los 2  empleados del mes: Estos son:
+
+a)	El empleado que en el último año que haya ventas (en el cual se ejecuta la query) vendió 
+más en dinero (fact_total)
+b)	El segundo empleado del año, es aquel que en el mismo año (en el cual se ejecuta la query)
+ tiene más facturas emitidas
+
+Se deberá mostrar Apellido y nombre del empleado en una sola columna y para el primero
+ un string que diga 
+(Mejor Facturación y para el Segundo Vendió Más Facturas).
+
+No se permiten sub select en el FROM.*/
+
+SELECT top 1 rtrim(empl_nombre)+' '+RTRIM(empl_apellido) 'nombre y apellido', 'Mejor facturación'
+from Empleado 
+where empl_codigo in
+(
+    select top 1 empl_codigo
+    from Empleado
+    join Factura on fact_vendedor = empl_codigo and year(fact_fecha) = (select max(year(fact_fecha)) from Factura)
+    group by empl_codigo
+    order by sum(fact_total) desc
+)
+
+UNION
+
+select top 1 rtrim(empl_nombre)+' '+RTRIM(empl_apellido) 'nombre y apellido', 'Vendió más facturas'
+from Empleado
+where empl_codigo in
+(
+    select top 1 fact_vendedor
+    from Factura where year(fact_fecha) = (select max(year(fact_fecha)) from Factura)
+    group by fact_vendedor
+    order by count(*) desc
+)
+
+/* 2.	Realizar un stored procedure que reciba un código de producto y una fecha y devuelva la mayor cantidad de días 
+consecutivos a partir de esa fecha que el producto tuvo al menos la venta de una unidad en el día, el sistema de ventas 
+on line está habilitado 24-7 por lo que se deben evaluar todos los días incluyendo domingos y feriados*/
+
+go
+create or alter PROCEDURE ej_4nov @codigo char(8), @fecha smalldatetime, @maxDias int OUTPUT
+as
+BEGIN
+    declare @producto char(8), @fechaSiguiente smalldatetime, @fecha_actual smalldatetime, @cantDias int
+    declare c1 cursor for 
+                           SELECT fact_fecha
+                           from Factura
+                           join Item_Factura on fact_tipo+fact_numero+fact_sucursal=item_tipo+item_numero+item_sucursal
+                           where item_producto=@producto
+                           group by fact_fecha
+                           order by fact_fecha
+    open c1
+    FETCH c1 into @fecha_actual
+    select @fechaSiguiente = @fecha
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        select @fecha = @fecha_actual
+        select @cantDias = 0
+        while @@FETCH_STATUS = 0 and @fecha + 1 = @fecha_actual
+        BEGIN
+            SELECT @cantDias = @cantDias+1
+            FETCH c1 into @fecha_actual
+        END
+        if (@cantDias > @maxDias)
+            select @maxDias=@cantDias
+        if @cantDias=0
+            fetch c1 into @fecha_actual
+    END
+    close c1
+    DEALLOCATE c1
+END
