@@ -182,3 +182,24 @@ BEGIN
     close c1
     DEALLOCATE c1
 END
+
+/* Sabiendo que si un producto no es vendido en un deposito determinado entonces no posee registros en el 
+Se requiere una consulta SQL que para todos los productos que se quedaron sin stock en un deposito (cantidad 0 o nula) y
+poseen un stock mayor al punto de resposicion en otro deposito devuelva:
+
+1 - codigo de producto
+2 - detalle de producto
+3 - domicilio del deposito sin stock
+4 - cantidad de depositos con un stock superior al punto de reposicion
+
+la consulta debe ser ordenada por el codigo de producto.
+*/
+
+select prod_codigo, prod_detalle, depo_domicilio, count(*)
+from Producto
+join STOCK s1 on s1.stoc_producto = prod_codigo
+join DEPOSITO on stoc_deposito = depo_codigo
+join STOCK s2 on s2.stoc_producto = prod_codigo
+where s1.stoc_cantidad = 0 or s1.stoc_cantidad is null and s2.stoc_cantidad > s2.stoc_punto_reposicion
+group by prod_codigo, prod_detalle, depo_domicilio
+order by 1
