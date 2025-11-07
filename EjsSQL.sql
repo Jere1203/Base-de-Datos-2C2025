@@ -738,3 +738,36 @@ and prod_familia in
 )
 group by prod_codigo, prod_detalle
 order by sum(item_cantidad) DESC
+
+-- 30. Se desea obtener una estadistica de ventas del año 2012, para los empleados que sean
+-- jefes, o sea, que tengan empleados a su cargo, para ello se requiere que realice la
+-- consulta que retorne las siguientes columnas:
+--  Nombre del Jefe
+--  Cantidad de empleados a cargo
+--  Monto total vendido de los empleados a cargo
+--  Cantidad de facturas realizadas por los empleados a cargo
+--  Nombre del empleado con mejor ventas de ese jefe
+-- Debido a la perfomance requerida, solo se permite el uso de una subconsulta si fuese
+-- necesario.
+-- Los datos deberan ser ordenados por de mayor a menor por el Total vendido y solo se
+-- deben mostrarse los jefes cuyos subordinados hayan realizado más de 10 facturas.
+
+select rtrim(j.empl_nombre) 'Nombre Jefe',
+count(distinct e.empl_codigo) 'Cant. Empleados',
+sum(fact_total)'Total vendido',
+count(fact_numero) 'Cant. Facturas',
+(
+    select top 1 RTRIM(empl_nombre)
+    from Empleado
+    join Factura on fact_vendedor=empl_codigo
+    where empl_jefe = j.empl_codigo
+    group by empl_nombre
+    order by sum(fact_total) desc
+) 'Empleado con mejores ventas'
+from Empleado j
+join Empleado e on e.empl_jefe = j.empl_codigo
+join Factura on fact_vendedor = e.empl_codigo
+and year(fact_fecha) = 2012
+group by j.empl_nombre, j.empl_codigo
+having count(fact_numero) > 10
+order by sum(fact_total) desc
