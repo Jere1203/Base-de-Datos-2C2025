@@ -771,3 +771,72 @@ and year(fact_fecha) = 2012
 group by j.empl_nombre, j.empl_codigo
 having count(fact_numero) > 10
 order by sum(fact_total) desc
+
+-- 31. Escriba una consulta sql que retorne una estadística por Año y Vendedor que retorne las
+-- siguientes columnas:
+--  Año.
+--  Codigo de Vendedor
+--  Detalle del Vendedor
+--  Cantidad de facturas que realizó en ese año
+--  Cantidad de clientes a los cuales les vendió en ese año.
+--  Cantidad de productos facturados con composición en ese año
+--  Cantidad de productos facturados sin composicion en ese año.
+--  Monto total vendido por ese vendedor en ese año
+-- Los datos deberan ser ordenados por año y dentro del año por el vendedor que haya
+-- vendido mas productos diferentes de mayor a menor.
+
+select year(f.fact_fecha) 'Año',
+f.fact_vendedor 'Cod. vendedor',
+rtrim(empl_nombre)+' '+rtrim(empl_apellido) 'Detalle vendedor',
+count(f.fact_numero) 'Cant. Facturas',
+count(distinct f.fact_cliente) 'Clientes atendidos',
+(
+    select count(*)
+    from Item_Factura
+    join Factura on item_tipo+item_numero+item_sucursal=fact_tipo+fact_numero+fact_sucursal
+    where year(fact_fecha) = YEAR(f.fact_fecha)
+    and fact_vendedor = empl_codigo
+    and item_producto in (select comp_producto from Composicion)
+) 'Prods. con Compo.',
+(
+    select count(*)
+    from Item_Factura
+    join Factura on item_tipo+item_numero+item_sucursal=fact_tipo+fact_numero+fact_sucursal
+    where year(fact_fecha) = YEAR(f.fact_fecha)
+    and fact_vendedor = empl_codigo
+    and item_producto not in (select comp_producto from Composicion)
+) 'Prods. sin Compo.',
+sum(item_cantidad*item_precio) 'Total facturado'
+from Factura f
+join Empleado on empl_codigo = f.fact_vendedor
+join Item_Factura on item_tipo+item_numero+item_sucursal=f.fact_tipo+f.fact_numero+f.fact_sucursal
+group by year(f.fact_fecha), f.fact_vendedor, empl_nombre, empl_apellido, empl_codigo
+order by year(f.fact_fecha), count(distinct item_producto) desc
+
+-- 32. Se desea conocer las familias que sus productos se facturaron juntos en las mismas
+-- facturas para ello se solicita que escriba una consulta sql que retorne los pares de
+-- familias que tienen productos que se facturaron juntos. Para ellos deberá devolver las
+-- siguientes columnas:
+--  Código de familia
+--  Detalle de familia
+--  Código de familia
+--  Detalle de familia
+--  Cantidad de facturas
+--  Total vendido
+-- Los datos deberan ser ordenados por Total vendido y solo se deben mostrar las familias
+-- que se vendieron juntas más de 10 veces.
+
+select f1.fami_id, f1.fami_detalle, f2.fami_id, f2.fami_detalle, count(distinct fact_numero) 'Cant. Facturas', sum(i1.item_cantidad*i1.item_precio+i2.item_cantidad+i2.item_precio) 'Total vendido'
+from Factura
+join Item_Factura i1 on i1.item_tipo+i1.item_numero+i1.item_sucursal=fact_tipo+fact_numero+fact_sucursal
+join Item_Factura i2 on i2.item_tipo+i2.item_numero+i2.item_sucursal=fact_tipo+fact_numero+fact_sucursal
+join Producto p1 on p1.prod_codigo=i1.item_producto
+join Producto p2 on p2.prod_codigo=i2.item_producto
+join Familia f1 on f1.fami_id = p1.prod_familia
+join Familia f2 on f2.fami_id = p2.prod_familia
+where f1.fami_id = f2.fami_id
+group by f1.fami_id, f1.fami_detalle, f2.fami_id, f2.fami_detalle
+having count(distinct fact_numero) > 10
+order by 6 
+
+
