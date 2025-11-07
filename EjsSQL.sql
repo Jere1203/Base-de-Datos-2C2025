@@ -840,3 +840,98 @@ having count(distinct fact_numero) > 10
 order by 6 
 
 
+-- 33. Se requiere obtener una estadística de venta de productos que sean componentes. Para
+-- ello se solicita que realiza la siguiente consulta que retorne la venta de los
+-- componentes del producto más vendido del año 2012. Se deberá mostrar:
+-- a. Código de producto
+-- b. Nombre del producto
+-- c. Cantidad de unidades vendidas
+-- d. Cantidad de facturas en la cual se facturo
+-- e. Precio promedio facturado de ese producto.
+-- f. Total facturado para ese producto
+-- El resultado deberá ser ordenado por el total vendido por producto para el año 2012.
+
+SELECT prod_codigo,
+prod_detalle,
+sum(item_cantidad)'Cant. vedidas',
+count(distinct fact_numero) 'Cant. facts.',
+avg(item_precio)'Precio promedio',
+sum(item_precio*item_cantidad)'Total Facturado'
+from Producto
+join Item_Factura on item_producto = prod_codigo
+join Factura on fact_tipo+fact_numero+fact_sucursal=item_tipo+item_numero+item_sucursal
+where prod_codigo in 
+(
+    select comp_componente
+    from Composicion
+    where comp_producto in 
+    (
+        select top 1 item_producto
+        from Item_Factura
+        join Factura on item_tipo+item_numero+item_sucursal=fact_tipo+fact_numero+fact_sucursal
+        where year(fact_fecha) = 2012
+        group by item_producto
+        order by sum(item_cantidad) desc
+    )
+)
+group by prod_codigo, prod_detalle
+order by sum(item_cantidad*item_precio)
+
+-- 34. Escriba una consulta sql que retorne para todos los rubros la cantidad de facturas mal
+-- facturadas por cada mes del año 2011 Se considera que una factura es incorrecta cuando
+-- en la misma factura se factutan productos de dos rubros diferentes. Si no hay facturas
+-- mal hechas se debe retornar 0. Las columnas que se deben mostrar son:
+-- 1- Codigo de Rubro
+-- 2- Mes
+-- 3- Cantidad de facturas mal realizadas.
+
+SELECT rubr_id, 
+month(fact_fecha) 'MES',
+isnull(count(distinct fact_numero), 0) '# FACTURAS MALAS'
+from Rubro
+join Producto on rubr_id = prod_rubro
+join Item_Factura on item_producto = prod_codigo
+join Factura on item_tipo+item_numero+item_sucursal=fact_tipo+fact_numero+fact_sucursal
+where year(fact_fecha) = 2011
+and fact_numero in 
+(
+    select fact_numero
+    from Factura
+    join Item_Factura i1 on i1.item_tipo+i1.item_numero+i1.item_sucursal=fact_tipo+fact_numero+fact_sucursal
+    join Item_Factura i2 on i2.item_tipo+i2.item_numero+i2.item_sucursal=fact_tipo+fact_numero+fact_sucursal
+    join Producto p1 on p1.prod_codigo = i1.item_producto
+    join Producto p2 on p2.prod_codigo = i2.item_producto
+    where p1.prod_rubro <> p2.prod_rubro
+    group by fact_numero
+)
+group by rubr_id, month(fact_fecha)
+order by 2
+
+-- 35. Se requiere realizar una estadística de ventas por año y producto, para ello se solicita
+-- que escriba una consulta sql que retorne las siguientes columnas:
+--  Año
+--  Codigo de producto
+--  Detalle del producto
+--  Cantidad de facturas emitidas a ese producto ese año
+--  Cantidad de vendedores diferentes que compraron ese producto ese año.
+--  Cantidad de productos a los cuales compone ese producto, si no compone a ninguno
+-- se debera retornar 0.
+--  Porcentaje de la venta de ese producto respecto a la venta total de ese año.
+-- Los datos deberan ser ordenados por año y por producto con mayor cantidad vendida.
+
+select year(f.fact_fecha), 
+prod_codigo, 
+prod_detalle,
+count(distinct f.fact_numero) 'CANT. FACTURAS',
+count(distinct f.fact_cliente) 'CANT. DE CLIENTES',
+(
+    select count(distinct comp_producto)
+    from Composicion
+    where comp_componente = prod_codigo
+),
+(sum(item_cantidad*item_precio) / (select sum(item_cantidad*item_precio) from Item_Factura join Factura on item_tipo+item_numero+item_sucursal = fact_tipo+fact_numero+fact_sucursal where year(fact_fecha) = year(f.fact_fecha)))*100 '% del total del año'
+from Factura f
+join Item_Factura on item_tipo+item_numero+item_sucursal=f.fact_tipo+f.fact_numero+f.fact_sucursal
+join Producto on prod_codigo = item_producto
+group by year(f.fact_fecha), prod_codigo, prod_detalle
+order by year(f.fact_fecha), sum(item_cantidad) desc
