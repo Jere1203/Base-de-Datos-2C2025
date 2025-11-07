@@ -668,3 +668,73 @@ join Producto on prod_codigo = item_producto
 join Envases on enva_codigo = prod_envase
 group by year(fact_fecha), enva_detalle, enva_codigo
 order by year(fact_fecha), sum(item_precio*item_cantidad) DESC
+
+-- 28. Escriba una consulta sql que retorne una estadística por Año y Vendedor que retorne las
+-- siguientes columnas:
+--  Año.
+--  Codigo de Vendedor
+--  Detalle del Vendedor
+--  Cantidad de facturas que realizó en ese año
+--  Cantidad de clientes a los cuales les vendió en ese año.
+--  Cantidad de productos facturados con composición en ese año
+--  Cantidad de productos facturados sin composicion en ese año.
+--  Monto total vendido por ese vendedor en ese año
+-- Los datos deberan ser ordenados por año y dentro del año por el vendedor que haya
+-- vendido mas productos diferentes de mayor a menor.
+
+select year(f.fact_fecha)'Año',
+f.fact_vendedor 'Codigo vendedor',
+RTRIM(empl_nombre) + ' ' + RTRIM(empl_apellido) 'Nombre y apellido',
+COUNT(distinct f.fact_numero)'Cant. facturas',
+count(distinct f.fact_cliente)'Cant. Clientes',
+(
+    select count(*)
+    from Factura
+    join Item_Factura on item_tipo+item_numero+item_sucursal=fact_tipo+fact_numero+fact_sucursal
+    where year(fact_fecha) = YEAR(f.fact_fecha)
+    and fact_vendedor = empl_codigo
+    and item_producto in (select comp_producto from Composicion)
+)'Productos con compo.',
+(
+    select count(*)
+    from Factura
+    join Item_Factura on item_tipo+item_numero+item_sucursal=fact_tipo+fact_numero+fact_sucursal
+    where year(fact_fecha) = YEAR(f.fact_fecha)
+    and fact_vendedor = empl_codigo
+    and item_producto not in (select comp_producto from Composicion)
+)'Productos sin compo.',
+sum(item_cantidad*item_precio) 'Total facturado'
+from Factura f join Empleado on empl_codigo = fact_vendedor
+join Item_Factura on item_tipo+item_numero+item_sucursal=fact_tipo+fact_numero+fact_sucursal
+group by YEAR(f.fact_fecha), f.fact_vendedor, empl_nombre, empl_apellido, empl_codigo
+order by year(f.fact_fecha), count(distinct item_producto) desc
+
+-- 29. Se solicita que realice una estadística de venta por producto para el año 2011, solo para
+-- los productos que pertenezcan a las familias que tengan más de 20 productos asignados
+-- a ellas, la cual deberá devolver las siguientes columnas:
+-- a. Código de producto
+-- b. Descripción del producto
+-- c. Cantidad vendida
+-- d. Cantidad de facturas en la que esta ese producto
+-- e. Monto total facturado de ese producto
+-- Solo se deberá mostrar un producto por fila en función a los considerandos establecidos
+-- antes. El resultado deberá ser ordenado por el la cantidad vendida de mayor a menor.
+
+select prod_codigo, 
+prod_detalle,
+sum(item_cantidad),
+count(distinct fact_numero),
+sum(item_cantidad*item_precio)
+from Factura f
+join Item_Factura on item_tipo+item_numero+item_sucursal=f.fact_tipo+f.fact_numero+f.fact_sucursal
+join Producto on prod_codigo=item_producto
+where year(f.fact_fecha) = 2011
+and prod_familia in 
+(
+    select prod_familia
+    from Producto
+    group by prod_familia
+    having count(*) > 20
+)
+group by prod_codigo, prod_detalle
+order by sum(item_cantidad) DESC
