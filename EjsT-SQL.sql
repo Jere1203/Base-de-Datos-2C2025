@@ -756,7 +756,7 @@ END
 -- producto A, hoy la regla se cumple.
 
 GO
-CREATE FUNCTION validarRecursividad(@producto char(8)) 
+CREATE OR ALTER FUNCTION validarRecursividad(@producto char(8)) 
 returns int
 AS
 BEGIN
@@ -766,7 +766,7 @@ BEGIN
   fetch cursor_componente into @componente
   while @@FETCH_STATUS = 0
   BEGIN
-    if exists (select * from Composicion where comp_producto = @componente)
+    if exists (select * from Composicion where comp_producto = @componente and comp_componente = @producto)
     BEGIN
       set @esRecursivo = 1
     END
@@ -778,10 +778,11 @@ BEGIN
   END
   CLOSE cursor_componente 
   DEALLOCATE cursor_componente
+  return @esRecursivo
 END
 
 GO
-CREATE TRIGGER ej25 on Composicion for INSERT
+CREATE OR ALTER TRIGGER ej25 on Composicion for INSERT
 AS
 BEGIN
   if exists (select * from inserted i where dbo.validarRecursividad(i.comp_componente) = 1)
