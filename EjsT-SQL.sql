@@ -571,3 +571,221 @@ BEGIN
                       and fact_vendedor = @vendedor
                     )*0.5 
 END
+
+-- 21. Desarrolle el/los elementos de base de datos necesarios para que se cumpla
+-- automaticamente la regla de que en una factura no puede contener productos de
+-- diferentes familias. En caso de que esto ocurra no debe grabarse esa factura y
+-- debe emitirse un error en pantalla
+GO
+create or alter trigger ej_t21 on item_factura for INSERT
+AS
+BEGIN
+  if exists (
+              select * 
+              from inserted i
+              where i.item_tipo+i.item_numero+i.item_sucursal in 
+              (
+                select item_tipo+item_numero+item_sucursal
+                from Item_Factura
+                join Producto on item_producto = prod_codigo
+                group by item_tipo+item_numero+item_sucursal
+                HAVING count(distinct prod_familia) > 1
+              )
+            )
+    BEGIN
+      RAISERROR('NO CUMPLE LA REGLA', 1, 1)
+      DELETE from Factura where fact_tipo+fact_numero+fact_sucursal in 
+      (
+        select item_tipo+item_numero+item_sucursal
+        from Item_Factura
+        join Producto on item_producto = prod_codigo
+        group by item_tipo+item_numero+item_sucursal
+        HAVING count(distinct prod_familia) > 1
+      )
+
+      DELETE from Item_Factura where item_tipo+item_numero+item_sucursal in 
+      (
+        select item_tipo+item_numero+item_sucursal
+        from Item_Factura
+        join Producto on item_producto = prod_codigo
+        group by item_tipo+item_numero+item_sucursal
+        HAVING count(distinct prod_familia) > 1
+      )
+    END
+END
+
+-- 22. Se requiere recategorizar los rubros de productos, de forma tal que nigun rubro
+-- tenga más de 20 productos asignados, si un rubro tiene más de 20 productos
+-- asignados se deberan distribuir en otros rubros que no tengan mas de 20
+-- productos y si no entran se debra crear un nuevo rubro en la misma familia con
+-- la descirpción “RUBRO REASIGNADO”, cree el/los objetos de base de datos
+-- necesarios para que dicha regla de negocio quede implementada.
+GO
+CREATE PROCEDURE ej22
+AS
+BEGIN
+  declare @rubro char(4), @cantProductos int
+  declare c1 cursor for select rubr_id, count(prod_codigo)  from Producto join Rubro on rubr_id = prod_rubro group by rubr_id
+  open c1
+  fetch c1 into @rubro, @cantProductos
+  while @@FETCH_STATUS = 0
+  BEGIN
+    if @cantProductos > 20
+    BEGIN
+      EXEC reasignar_rubro @rubro, @cantProductos
+    END
+    fetch c1 into @rubro, @cantProductos
+  END
+END
+
+GO
+CREATE or ALTER PROCEDURE reasignar_rubro (@rubro char(4), @cantidadProductos int)
+AS
+BEGIN
+declare @cant int, @prod char(8), @nuevoRubro char(4)
+  declare cursor_productos cursor for select prod_codigo from Producto where prod_rubro = @rubro
+  open cursor_productos
+  fetch cursor_productos into @prod
+  while @@FETCH_STATUS=0
+  BEGIN
+    select top 1 @nuevoRubro=rubr_id from Rubro join Producto on rubr_id=prod_rubro where rubr_detalle <> 'RUBRO REASIGNADAO' group by rubr_id having count(prod_codigo) < 20
+    if @nuevoRubro is not NULL
+    BEGIN
+      update Producto set prod_rubro = @nuevoRubro where prod_codigo = @prod
+    END
+    ELSE
+    if not exists (select rubr_id from Rubro where rubr_detalle = 'RUBRO REASIGNADO')
+    BEGIN
+      insert into Rubro (rubr_detalle)
+      VALUES ('RUBRO REASIGNADO')
+    update Producto set prod_rubro = (select rubr_id from Rubro where rubr_detalle = 'RUBRO REASIGNADO') where prod_codigo = @prod
+    END
+    set @cantidadProductos= @cantidadProductos - 1
+    FETCH cursor_productos into @prod
+  END
+  close cursor_productos
+  DEALLOCATE cursor_productos
+END
+
+-- 23. Desarrolle el/los elementos de base de datos necesarios para que ante una venta
+-- automaticamante se controle que en una misma factura no puedan venderse más
+-- de dos productos con composición. Si esto ocurre debera rechazarse la factura.
+
+GO
+create trigger ej_t23 on item_factura for insert
+AS
+BEGIN
+  if exists ( select * 
+              from inserted i 
+              where i.item_tipo+i.item_numero+i.item_sucursal in 
+              (
+                select fact_tipo+fact_numero+fact_sucursal
+                from Factura
+                join Item_Factura on item_tipo+item_numero+item_sucursal=fact_tipo+fact_numero+fact_sucursal
+                join Producto on prod_codigo=item_producto
+                where prod_codigo in (select comp_producto from Composicion)
+                group by fact_tipo+fact_numero+fact_sucursal
+                having count(distinct prod_codigo) = 2
+              )
+            )
+  BEGIN
+    PRINT'Ya se encuentran 2 productos compuestos en la factura, se procede con la eliminacion'
+    delete from Factura where fact_tipo+fact_numero+fact_sucursal in 
+    (
+      select fact_tipo+fact_numero+fact_sucursal
+      from Factura
+      join Item_Factura on item_tipo+item_numero+item_sucursal=fact_tipo+fact_numero+fact_sucursal
+      join Producto on prod_codigo=item_producto
+      where prod_codigo in (select comp_producto from Composicion)
+      group by fact_tipo+fact_numero+fact_sucursal
+      having count(distinct prod_codigo) = 2
+    )
+    delete from Item_Factura where item_tipo+item_numero+item_sucursal in
+    (
+      select fact_tipo+fact_numero+fact_sucursal
+      from Factura
+      join Item_Factura on item_tipo+item_numero+item_sucursal=fact_tipo+fact_numero+fact_sucursal
+      join Producto on prod_codigo=item_producto
+      where prod_codigo in (select comp_producto from Composicion)
+      group by fact_tipo+fact_numero+fact_sucursal
+      having count(distinct prod_codigo) = 2
+    )
+  END
+END
+
+-- 24. Se requiere recategorizar los encargados asignados a los depositos. Para ello
+-- cree el o los objetos de bases de datos necesarios que lo resueva, teniendo en
+-- cuenta que un deposito no puede tener como encargado un empleado que
+-- pertenezca a un departamento que no sea de la misma zona que el deposito, si
+-- esto ocurre a dicho deposito debera asignársele el empleado con menos
+-- depositos asignados que pertenezca a un departamento de esa zona.
+
+GO
+create procedure ej_t24
+AS
+BEGIN
+  declare @encargado numeric(6), @zona char(3), @nuevoEncargado numeric(6)
+  declare curs_deposito cursor for select depo_encargado, depo_zona 
+                                   from DEPOSITO 
+                                   join Empleado on depo_encargado = empl_codigo
+                                   join Departamento on depa_codigo = empl_departamento
+                                   where depa_zona <> depo_zona
+
+  open curs_deposito
+  fetch curs_deposito into @encargado, @zona
+  while @@FETCH_STATUS=0
+  BEGIN
+    select top 1 @nuevoEncargado=depo_encargado 
+    from DEPOSITO 
+    join Empleado on depo_encargado = empl_codigo 
+    join Departamento on depa_zona = @zona
+    group by depo_encargado
+    order by count(*) desc
+
+    update DEPOSITO set depo_encargado = @nuevoEncargado where depo_zona = @zona
+
+    fetch curs_deposito into @encargado, @zona
+  END
+  close curs_deposito
+  DEALLOCATE curs_deposito
+END
+
+-- 25. Desarrolle el/los elementos de base de datos necesarios para que no se permita
+-- que la composición de los productos sea recursiva, o sea, que si el producto A
+-- compone al producto B, dicho producto B no pueda ser compuesto por el
+-- producto A, hoy la regla se cumple.
+
+GO
+CREATE FUNCTION validarRecursividad(@producto char(8)) 
+returns int
+AS
+BEGIN
+  declare cursor_componente cursor for select comp_componente from Composicion where comp_producto=@producto
+  declare @componente char(8), @esRecursivo int
+  open cursor_componente
+  fetch cursor_componente into @componente
+  while @@FETCH_STATUS = 0
+  BEGIN
+    if exists (select * from Composicion where comp_producto = @componente)
+    BEGIN
+      set @esRecursivo = 1
+    END
+    ELSE
+    BEGIN
+      set @esRecursivo = 0
+    END
+    FETCH cursor_componente into @componente
+  END
+  CLOSE cursor_componente 
+  DEALLOCATE cursor_componente
+END
+
+GO
+CREATE TRIGGER ej25 on Composicion for INSERT
+AS
+BEGIN
+  if exists (select * from inserted i where dbo.validarRecursividad(i.comp_componente) = 1)
+  ROLLBACK
+END 
+
+select * from Composicion

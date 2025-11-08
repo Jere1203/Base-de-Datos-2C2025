@@ -1,0 +1,8 @@
+RESTORE DATABASE GD2015C1
+FROM DISK= '/tmp/GD2015C1.bak'
+WITH MOVE 'GESTION2009_Data' TO '/var/opt/mssql/data/GD2014.MDF',
+     MOVE 'GESTION2009_Log' to '/var/opt/mssql/data/GD2014.LDF',
+     REPLACE;
+GO
+
+RESTORE FILELISTONLY from DISK ='/tmp/GD2015C1.bak'
