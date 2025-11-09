@@ -170,7 +170,7 @@ END
 -- indirectamente). Solo contar aquellos empleados (directos o indirectos) que
 -- tengan un código mayor que su jefe directo.
 GO
-ALTER FUNCTION ej11 (@jefe numeric(6))
+create FUNCTION ej11 (@jefe numeric(6))
 returns int 
 AS
 BEGIN
@@ -789,4 +789,226 @@ BEGIN
   ROLLBACK
 END 
 
-select * from Composicion
+-- 26. Desarrolle el/los elementos de base de datos necesarios para que se cumpla
+-- automaticamente la regla de que una factura no puede contener productos que
+-- sean componentes de otros productos. En caso de que esto ocurra no debe
+-- grabarse esa factura y debe emitirse un error en pantalla.
+
+go  
+create TRIGGER ej_t26 on Item_Factura for INSERT
+as
+BEGIN
+  if exists (select * from inserted i where i.item_producto in (select comp_componente from Composicion))
+  BEGIN
+    RAISERROR('No se cumple la regla',1,1)
+    delete from Factura where fact_tipo+fact_numero+fact_sucursal in 
+    (
+      select i.item_tipo+i.item_numero+i.item_sucursal
+      from inserted i
+    )
+  END 
+END
+
+-- 27. Se requiere reasignar los encargados de stock de los diferentes depósitos. Para
+-- ello se solicita que realice el o los objetos de base de datos necesarios para
+-- asignar a cada uno de los depósitos el encargado que le corresponda,
+-- entendiendo que el encargado que le corresponde es cualquier empleado que no
+-- es jefe y que no es vendedor, o sea, que no está asignado a ningun cliente, se
+-- deberán ir asignando tratando de que un empleado solo tenga un deposito
+-- asignado, en caso de no poder se irán aumentando la cantidad de depósitos
+-- progresivamente para cada empleado.
+
+-- Tengo que reasignar los encargados que son jefe y vendedores (uso un cursor)
+-- Tengo que fijarme que sólo tenga un depósito a cargo y si no le agrego uno.
+
+go
+create PROCEDURE ej_t27
+as
+BEGIN
+  declare @depo numeric(6), @nuevoEncargado numeric(6)
+  declare curs_depo cursor for select depo_codigo 
+                                    from DEPOSITO 
+                                    join Empleado on empl_codigo=depo_encargado
+                                    where empl_jefe is null 
+                                    and empl_codigo in 
+                                    (
+                                      select fact_vendedor
+                                      from Factura
+                                    )
+  open curs_depo
+  fetch curs_depo into @depo 
+  while @@FETCH_STATUS=0
+  BEGIN
+  -- Tengo que elegir a un empleado que no sea ni jefe ni tenga facturas ni que tenga deposito a su nombre
+  select top 1 @nuevoEncargado=empl_codigo 
+  from Empleado 
+  left join DEPOSITO on depo_encargado = empl_codigo
+  where empl_codigo not in 
+  (
+    select fact_vendedor
+    from Factura
+  ) 
+  and empl_jefe is not null
+  group by empl_codigo
+  order by count(*)
+
+  update DEPOSITO set depo_encargado = @nuevoEncargado where depo_codigo = @depo
+  FETCH curs_depo into @depo
+  END 
+  close curs_depo
+  DEALLOCATE curs_depo
+END
+
+-- 28. Se requiere reasignar los vendedores a los clientes. Para ello se solicita que
+-- realice el o los objetos de base de datos necesarios para asignar a cada uno de los
+-- clientes el vendedor que le corresponda, entendiendo que el vendedor que le
+-- corresponde es aquel que le vendió más facturas a ese cliente, si en particular un
+-- cliente no tiene facturas compradas se le deberá asignar el vendedor con más
+-- venta de la empresa, o sea, el que en monto haya vendido más.
+
+go
+create procedure ej_t28
+AS
+BEGIN
+  declare @cliente char(6), @nuevoVendedor char(6)
+  declare curs_cliente cursor for select clie_codigo from Cliente
+  open curs_cliente
+  FETCH curs_cliente into @cliente
+  WHILE @@FETCH_STATUS=0
+  BEGIN
+    select top 1 @nuevoVendedor=fact_vendedor 
+    from Factura
+    where fact_cliente = @cliente
+    group by fact_vendedor
+    order by count(*)
+
+    if @nuevoVendedor is null 
+    BEGIN
+      set @nuevoVendedor = (select top 1 fact_vendedor from Factura group by fact_vendedor order by count(distinct fact_numero) desc)
+
+    END
+
+    update Cliente set clie_vendedor = @nuevoVendedor where clie_codigo=@cliente
+
+    FETCH curs_cliente into @cliente
+  END
+  close curs_cliente
+  DEALLOCATE curs_cliente
+END
+
+-- 29. Desarrolle el/los elementos de base de datos necesarios para que se cumpla
+-- automaticamente la regla de que una factura no puede contener productos que
+-- sean componentes de diferentes productos. En caso de que esto ocurra no debe
+-- grabarse esa factura y debe emitirse un error en pantalla.
+
+GO
+create trigger ej_t29 on Item_Factura for INSERT
+as
+BEGIN
+  if exists (select i.item_producto from inserted i where i.item_producto in 
+  (
+    select comp_componente
+    from Composicion
+  ))
+  BEGIN
+    RAISERROR('NO SE CUMPLE LA REGLA',1,1)
+    DELETE from Factura where fact_tipo+fact_numero+fact_sucursal in 
+    (
+      select i.item_tipo+i.item_numero+i.item_sucursal
+      from inserted i
+    )
+  END
+END 
+
+-- 30. Agregar el/los objetos necesarios para crear una regla por la cual un cliente no
+-- pueda comprar más de 100 unidades en el mes de ningún producto, si esto
+-- ocurre no se deberá ingresar la operación y se deberá emitir un mensaje “Se ha
+-- superado el límite máximo de compra de un producto”. Se sabe que esta regla se
+-- cumple y que las facturas no pueden ser modificadas.
+
+GO
+create trigger ej_t30 on Item_Factura for INSERT
+as
+BEGIN
+  if exists (select * 
+              from inserted i 
+              join Factura f on i.item_tipo+i.item_numero+i.item_sucursal = f.fact_tipo+f.fact_numero+f.fact_sucursal
+              where 
+              (
+                select sum(item_cantidad)
+                from Item_Factura
+                join Factura on item_tipo+item_numero+item_sucursal=fact_tipo+fact_numero+fact_sucursal
+                where MONTH(fact_fecha) = MONTH(f.fact_fecha) 
+                and year(fact_fecha) = year(f.fact_fecha)
+                and fact_cliente = f.fact_cliente
+              ) > 100
+            )
+  BEGIN
+    PRINT 'Se ha superado el límite máximo de compra de un producto'
+    delete from Item_Factura where item_tipo+item_numero+item_sucursal IN
+    (
+      select i.item_tipo+i.item_numero+i.item_sucursal
+      from inserted i 
+      join Factura f on i.item_tipo+i.item_numero+i.item_sucursal = f.fact_tipo+f.fact_numero+f.fact_sucursal
+      where 
+      (
+        select sum(item_cantidad)
+        from Item_Factura
+        join Factura on item_tipo+item_numero+item_sucursal=fact_tipo+fact_numero+fact_sucursal
+        where MONTH(fact_fecha) = MONTH(f.fact_fecha) 
+        and year(fact_fecha) = year(f.fact_fecha)
+        and fact_cliente = f.fact_cliente
+      ) > 100
+    )
+
+    delete from Factura where fact_tipo+fact_numero+fact_sucursal IN
+    (
+      select i.item_tipo+i.item_numero+i.item_sucursal
+      from inserted i 
+      join Factura f on i.item_tipo+i.item_numero+i.item_sucursal = f.fact_tipo+f.fact_numero+f.fact_sucursal
+      where 
+      (
+        select sum(item_cantidad)
+        from Item_Factura
+        join Factura on item_tipo+item_numero+item_sucursal=fact_tipo+fact_numero+fact_sucursal
+        where MONTH(fact_fecha) = MONTH(f.fact_fecha) 
+        and year(fact_fecha) = year(f.fact_fecha)
+        and fact_cliente = f.fact_cliente
+      ) > 100
+    )
+  END 
+END
+
+-- 31. Desarrolle el o los objetos de base de datos necesarios, para que un jefe no pueda
+-- tener más de 20 empleados a cargo, directa o indirectamente, si esto ocurre
+-- debera asignarsele un jefe que cumpla esa condición, si no existe un jefe para
+-- asignarle se le deberá colocar como jefe al gerente general que es aquel que no
+-- tiene jefe.
+
+GO
+CREATE TRIGGER ej_t31 on Empleado for INSERT, UPDATE
+as
+BEGIN
+  declare @empleado numeric(6), @nuevoJefe numeric(6)
+  declare curs_empl cursor for select i.empl_codigo from inserted i where dbo.ej11(i.empl_jefe) > 20  --El ej11 es una función que retorna los empleados a cargo de un jefe
+  open curs_empl
+  FETCH curs_empl into @empleado
+  WHILE @@FETCH_STATUS=0
+  BEGIN
+    select top 1 @nuevoJefe=empl_codigo 
+    from Empleado 
+    where dbo.ej11(empl_codigo) < 20
+    order by dbo.ej11(empl_codigo) asc
+
+    if @nuevoJefe is null
+    BEGIN
+      UPDATE Empleado set empl_jefe = (select empl_codigo from Empleado where empl_jefe is null)
+    END
+
+    UPDATE Empleado set empl_jefe = @nuevoJefe where empl_codigo=@empleado
+
+    FETCH curs_empl into @empleado
+  END
+  close curs_empl
+  DEALLOCATE curs_empl
+END
